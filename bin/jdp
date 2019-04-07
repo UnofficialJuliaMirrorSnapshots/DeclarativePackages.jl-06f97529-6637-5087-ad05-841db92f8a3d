@@ -1,0 +1,94 @@
+#!/bin/bash
+
+# stop on error
+set -e
+
+# default for unset ENV variables
+if [ -z "$DECLARE" ]
+then
+	DECLARE=DECLARE
+fi
+
+if [ -z "$DECLARE_JULIA" ]
+then
+	DECLARE_JULIA=julia
+fi
+
+if [ -z "$DECLARE_INCLUDETEST" ]
+then
+	DECLARE_INCLUDETEST=""
+fi
+
+if [ ! -z "$DECLARE_INCLUDETEST" ] && [ $DECLARE_INCLUDETEST == "true" ]
+then
+	TESTSUFFIX="withtest"
+else
+	TESTSUFFIX=""
+fi
+
+if [ -z "$DECLARE_BASEPATH" ]
+then
+    DECLARE_BASEPATH=$HOME/.julia/declarative
+fi
+echo "DECLARE_BASEPATH: $DECLARE_BASEPATH"
+
+
+# need a declaration file
+if [ ! -e $DECLARE ]
+then
+	echo "DeclarativePackages: $DECLARE not found"
+	exit
+fi
+
+
+# set variables
+if [ `uname` == Darwin ]
+then
+	MD5="md5 -q"    
+	STAT="stat -f \"%p\""
+	STATVALUE=\"40555\"
+else
+	MD5=md5sum
+	STAT="stat -c %a"
+	STATVALUE=555
+fi
+
+JULIA_VERSION=`$DECLARE_JULIA -e julia -e "println(VERSION.major,'.',VERSION.minor)"`
+HASH=`$MD5 $DECLARE | tr " " "\n" | head -n 1`
+export JULIA_PKGDIR=$DECLARE_BASEPATH/$HASH$TESTSUFFIX-$JULIA_VERSION
+
+# find out where the script is:
+# (thanks to http://stackoverflow.com/questions/59895/can-a-bash-script-tell-what-directory-its-stored-in)
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symlink
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # if $SOURCE was a relative symlink, we need to resolve it relative to the path where the symlink file was located
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+
+
+# install packages if not installled yet
+if [ ! -e $JULIA_PKGDIR/v0.2/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v0.3/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v0.4/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v0.5/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v0.6/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v0.7/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v0.8/REQUIRE ] && [ ! -e $JULIA_PKGDIR/v1.0/REQUIRE ];
+then
+	DECLARE=$DECLARE $DECLARE_JULIA $DIR/../src/installpackages.jl 
+fi
+
+
+# HASH might have changed due to DECLARE update, recompute
+HASH=`$MD5 $DECLARE | tr " " "\n" | head -n 1`
+export JULIA_PKGDIR=$DECLARE_BASEPATH/$HASH$TESTSUFFIX-$JULIA_VERSION
+
+# requires a patched julia build
+if [ -z "$JULIA_LOAD_CACHE_PATH" ]
+then
+    export JULIA_LOAD_CACHE_PATH=$DECLARE_BASEPATH/$HASH$TESTSUFFIX-$JULIA_VERSION-lib
+    mkdir -p $JULIA_LOAD_CACHE_PATH
+fi
+
+# invoke julia
+$DECLARE_JULIA --startup-file=no -L $DIR/../src/setloadpath.jl "$@"
+	
+
+
